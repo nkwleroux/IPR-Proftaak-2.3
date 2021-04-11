@@ -35,20 +35,16 @@
 #define MENU_MAIN_ID_2 2
 
 //Date Time
-#define MENU_DATETIME_ID_0 3
-#define MENU_DATETIME_ID_1 4
-#define MENU_DATETIME_ID_2 5
+#define MENU_DATE_TIME_ID_0 3
 
-//Notes
-#define MENU_NOTES_ID_0 6
-#define MENU_NOTES_ID_1 7
-#define MENU_NOTES_ID_2 8
+//Weather
+#define MENU_WEATHER_ID_0 4
 
-//temp
-#define MENU_PLACEHOLDER_ID_0 9
-#define MENU_PLACEHOLDER_ID_1 10
-#define MENU_PLACEHOLDER_ID_2 11
-#define MENU_PLACEHOLDER_ID_3 12
+//Settings
+#define MENU_SETTINGS_ID_0 5
+
+//datetime
+#define MENU_DATE_TIME_SIZE 2
 
 typedef struct {
     unsigned int id;
@@ -65,11 +61,14 @@ typedef struct {
     unsigned int currentMenuItemId;
 } menu_t;
 
+void menu_task(void * pvParameter);
 menu_t *menu_create_menu(void);
 void menu_display_welcome_message(menu_t *menu);
 void menu_display_scroll_menu(menu_t *menu);
 void menu_display_menu_item(menu_t *menu, int menuItemId);
 void menu_handle_key_event(menu_t *menu, int key);
 void menu_free_menu(menu_t *menu);
+
+void menu_update_date_time(char* dateString, char* timeString);
 
 #endif // lcd-menu
