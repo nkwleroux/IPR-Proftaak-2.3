@@ -1,10 +1,9 @@
-#include <string.h>
 #include "wifi-connect.h"
+#include <string.h>
 #include "sdkconfig.h"
 #include "esp_event.h"
 #include "esp_wifi.h"
 #include "esp_wifi_default.h"
-
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "driver/gpio.h"
@@ -13,31 +12,39 @@
 #include "freertos/event_groups.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
-
 #include "nvs_flash.h"
 
 #define NR_OF_IP_ADDRESSES_TO_WAIT_FOR (s_active_interfaces)
+
+#define WIFITAG "Wifi"
 
 static int s_active_interfaces = 0;
 static xSemaphoreHandle s_semph_get_ip_addrs;
 static esp_ip4_addr_t s_ip_addr;
 static esp_netif_t *s_esp_netif = NULL;
-
-#define WIFITAG "Wifi"
+int isConnected = -1;
 
 #if CONFIG_CONNECT_WIFI
 static esp_netif_t* wifi_start(void);
 static void wifi_stop(void);
 #endif
 
-void initialize_wifi_connection(void){
+void wifi_task(void * pvParameter)
+{
 
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     ESP_ERROR_CHECK(wifi_connect());
+
+    vTaskDelete(NULL);
 } 
+
+int wifi_is_connected(void)
+{
+    return isConnected;
+}
 
 /**
  * @brief Checks the netif description if it contains specified prefix.
@@ -113,6 +120,8 @@ esp_err_t wifi_connect(void)
 
         }
     }
+
+    isConnected = ESP_OK;
     return ESP_OK;
 }
 

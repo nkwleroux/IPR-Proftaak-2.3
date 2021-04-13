@@ -16,7 +16,17 @@ extern "C" {
 #include "esp_err.h"
 #include "esp_netif.h"
 
-void initialize_wifi_connection(void);
+/**
+ * @brief  Task used to connect with the Wifi.
+ * @param  pvParameter: Parameter used for the xCreateTask method.
+ */
+void wifi_task(void * pvParameter);
+
+/**
+ * @brief  A getter for the isConnected variable. Functions as a boolean.
+ * @return isConnected variable.
+ */
+int wifi_is_connected(void);
 
 /**
  * @brief Configure Wi-Fi and connect
@@ -58,4 +68,4 @@ esp_netif_t *get_netif_from_desc(const char *desc);
 
 #ifdef __cplusplus
 }
-#endif
+#endif // wifi-connect

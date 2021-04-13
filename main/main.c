@@ -5,9 +5,6 @@
 //Wifi
 #include "wifi-connect.h"
 
-//Touch buttons
-#include "touch-buttons.h"
-
 //LCD
 #include "lcd-menu.h"
 
@@ -16,10 +13,7 @@
 
 void app_main(void){
 
-    initialize_wifi_connection();
-
-    init_touch_buttons();
-
+    xTaskCreate(&wifi_task, "wifi_task", 4096, NULL, 5, NULL);
     xTaskCreate(&clock_task, "clock_task", 4096, NULL, 5, NULL);
     xTaskCreate(&menu_task, "menu_task", 4096, NULL, 5, NULL);
 }

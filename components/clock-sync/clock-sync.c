@@ -1,5 +1,4 @@
 #include "clock-sync.h"
-
 #include <time.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -8,13 +7,13 @@
 #include "esp_log.h"
 #include "esp_sntp.h"
 
-#include "lcd-menu.h"
-
 #define CLOCKTAG "Clock"
 
 char *timeString;
 char *dateString;
-char **clockSounds;
+clock_sync_t* parsedClock;
+
+void parse_clock(char* dateString, char* timeString);
 
 void clock_task(void*pvParameter){
     initialize_sntp();
@@ -49,7 +48,9 @@ void clock_task(void*pvParameter){
         timeString = strftime_buf;
         dateString = strftime_buf2;
 
-        menu_update_date_time(dateString,timeString);
+        parse_clock(dateString,timeString);
+
+        //menu_update_date_time(dateString,timeString);
 
         vTaskDelay(5000 / portTICK_PERIOD_MS); // time between updates
     }
@@ -86,14 +87,16 @@ void initialize_sntp(void){
     sntp_init();
 }
 
-char *clock_get_time(){
-    if(timeString == NULL) { return "00:00"; }
-    return timeString;
+void parse_clock(char* dateString, char* timeString){
+    parsedClock = (clock_sync_t*) malloc(sizeof(clock_sync_t));
+
+    parsedClock->date = dateString;
+    parsedClock->time = timeString;
+
 }
 
-char* clock_get_date(){
-    if(dateString == NULL){ return NULL; }
-    return dateString;
+clock_sync_t* get_clock(){
+    return parsedClock;
 }
 
 

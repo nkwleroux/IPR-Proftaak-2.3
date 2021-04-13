@@ -1,21 +1,19 @@
 #include "http-request.h"
-
+#include <math.h>
+#include <string.h>
 #include "esp_log.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
 #include "sdkconfig.h"
-
 #include "cJSON.h"
 
-#include <math.h>
-#include <string.h>
+//Wifi
+#include "wifi-connect.h"
 
 #define APITAG "API"
 
@@ -35,6 +33,107 @@ void parse_get_response(void);
 void print_response(void);
 double convert_kelvin_to_Celsius(double kelvin);
 void set_request_string(char * city);
+void init_cities(void);
+
+void api_request_task(void * pvParameter){
+
+    if(citySelection == NULL){
+        init_cities();
+    }
+
+    set_request_string(selectedCity);
+    
+    while (1)
+    {    
+        memset(response, 0, sizeof(response));
+
+        const struct addrinfo hints = {
+            .ai_family = AF_INET,
+            .ai_socktype = SOCK_STREAM,
+        };
+
+        struct addrinfo *res;
+        struct in_addr *addr;
+        int r;
+        char recv_buf[64];
+
+        if(wifi_is_connected() != -1){
+            int err = getaddrinfo(WEB_SERVER, WEB_PORT, &hints, &res);
+
+            if(err != 0 || res == NULL) {
+                ESP_LOGE(APITAG, "DNS lookup failed err=%d res=%p", err, res);
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+            }
+
+            /* Code to print the resolved IP. */
+            addr = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
+            ESP_LOGI(APITAG, "DNS lookup succeeded. IP=%s", inet_ntoa(*addr));
+
+            _socket = socket(res->ai_family, res->ai_socktype, 0);
+            if(_socket < 0) {
+                ESP_LOGE(APITAG, "... Failed to allocate socket.");
+                freeaddrinfo(res);
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+            }
+            ESP_LOGI(APITAG, "... allocated socket");
+
+            if(connect(_socket, res->ai_addr, res->ai_addrlen) != 0) {
+                ESP_LOGE(APITAG, "... socket connect failed errno=%d", errno);
+                close(_socket);
+                freeaddrinfo(res);
+                vTaskDelay(4000 / portTICK_PERIOD_MS);
+            }
+
+            ESP_LOGI(APITAG, "... connected");
+            freeaddrinfo(res);
+
+            if (write(_socket, request, strlen(request)) < 0) {
+                ESP_LOGE(APITAG, "... socket send failed");
+                close(_socket);
+                vTaskDelay(4000 / portTICK_PERIOD_MS);
+            }
+            ESP_LOGI(APITAG, "... socket send success");
+
+            struct timeval receiving_timeout;
+            receiving_timeout.tv_sec = 5;
+            receiving_timeout.tv_usec = 0;
+            if (setsockopt(_socket, SOL_SOCKET, SO_RCVTIMEO, &receiving_timeout,
+                    sizeof(receiving_timeout)) < 0) {
+                ESP_LOGE(APITAG, "... failed to set socket receiving timeout");
+                close(_socket);
+                vTaskDelay(4000 / portTICK_PERIOD_MS);
+            }
+            ESP_LOGI(APITAG, "... set socket receiving timeout success");
+
+            int json = 0;
+            int index = 0;
+
+            /* Read HTTP response */
+            do {
+                bzero(recv_buf, sizeof(recv_buf));
+                r = read(_socket, recv_buf, sizeof(recv_buf)-1);
+                for(int i = 0; i < r; i++) {
+                    if(recv_buf[i]=='{' || json){
+                        json = 1;
+                        response[index] = recv_buf[i];
+                        index++;
+                        putchar(recv_buf[i]);
+                    }
+                }
+            } while(r > 0);
+    
+            parse_get_response();
+
+            ESP_LOGI(APITAG, "... done reading from socket. Last read return=%d errno=%d.", r, errno);
+            close(_socket);
+            
+            vTaskDelay(60000/portTICK_RATE_MS); // delay of 1 min
+        }else{
+            vTaskDelay(5000/portTICK_RATE_MS);
+        }
+
+    }
+}
 
 void init_cities(){
 
@@ -101,102 +200,6 @@ void set_request_string(char * city){
     //ESP_LOGI(APITAG,"request response = %s", request);
 }
 
-void api_request(void * pvParameter){
-
-    if(citySelection == NULL){
-        init_cities();
-    }
-
-    set_request_string(selectedCity);
-    
-    while (1)
-    {    
-        memset(response, 0, sizeof(response));
-
-        const struct addrinfo hints = {
-            .ai_family = AF_INET,
-            .ai_socktype = SOCK_STREAM,
-        };
-
-        struct addrinfo *res;
-        struct in_addr *addr;
-        int r;
-        char recv_buf[64];
-
-        int err = getaddrinfo(WEB_SERVER, WEB_PORT, &hints, &res);
-
-        if(err != 0 || res == NULL) {
-            ESP_LOGE(APITAG, "DNS lookup failed err=%d res=%p", err, res);
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-
-        /* Code to print the resolved IP. */
-        addr = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
-        ESP_LOGI(APITAG, "DNS lookup succeeded. IP=%s", inet_ntoa(*addr));
-
-        _socket = socket(res->ai_family, res->ai_socktype, 0);
-        if(_socket < 0) {
-            ESP_LOGE(APITAG, "... Failed to allocate socket.");
-            freeaddrinfo(res);
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-        ESP_LOGI(APITAG, "... allocated socket");
-
-        if(connect(_socket, res->ai_addr, res->ai_addrlen) != 0) {
-            ESP_LOGE(APITAG, "... socket connect failed errno=%d", errno);
-            close(_socket);
-            freeaddrinfo(res);
-            vTaskDelay(4000 / portTICK_PERIOD_MS);
-        }
-
-        ESP_LOGI(APITAG, "... connected");
-        freeaddrinfo(res);
-
-        if (write(_socket, request, strlen(request)) < 0) {
-            ESP_LOGE(APITAG, "... socket send failed");
-            close(_socket);
-            vTaskDelay(4000 / portTICK_PERIOD_MS);
-        }
-        ESP_LOGI(APITAG, "... socket send success");
-
-        struct timeval receiving_timeout;
-        receiving_timeout.tv_sec = 5;
-        receiving_timeout.tv_usec = 0;
-        if (setsockopt(_socket, SOL_SOCKET, SO_RCVTIMEO, &receiving_timeout,
-                sizeof(receiving_timeout)) < 0) {
-            ESP_LOGE(APITAG, "... failed to set socket receiving timeout");
-            close(_socket);
-            vTaskDelay(4000 / portTICK_PERIOD_MS);
-        }
-        ESP_LOGI(APITAG, "... set socket receiving timeout success");
-
-        int json = 0;
-        int index = 0;
-
-        /* Read HTTP response */
-        do {
-            bzero(recv_buf, sizeof(recv_buf));
-            r = read(_socket, recv_buf, sizeof(recv_buf)-1);
-            for(int i = 0; i < r; i++) {
-                if(recv_buf[i]=='{' || json){
-                    json = 1;
-                    response[index] = recv_buf[i];
-                    index++;
-                    putchar(recv_buf[i]);
-                }
-            }
-        } while(r > 0);
- 
-        parse_get_response();     
-
-        ESP_LOGI(APITAG, "... done reading from socket. Last read return=%d errno=%d.", r, errno);
-        close(_socket);
-
-        vTaskDelay(60000/portTICK_RATE_MS); // delay of 1 min
-
-    }
-}
-
 void select_city(int index){
     selectedCity = citySelection[index];
     close(_socket);
@@ -208,10 +211,6 @@ char** city_selection_list(){
 
 int city_selection_list_size(){
     return citySelectionListSize;
-}
-
-char* http_request_get_response(){
-    return &response[0]; 
 }
 
 void parse_get_response(void){
@@ -249,12 +248,12 @@ double convert_kelvin_to_Celsius(double kelvin){
     return kelvin - 273.15;
 }
 
-weatherAPI_t* get_parsed_response(){
+weatherAPI_t* get_parsed_response(void){
     return parsedResponse;
 }
 
 //debug
-void print_response(){
+void print_response(void){
     ESP_LOGI(APITAG,"temp = %.2lf C\n", parsedResponse->temp);
     ESP_LOGI(APITAG,"feels_like = %.2lf C\n", parsedResponse->feels_like);
     ESP_LOGI(APITAG,"humidity = %d%% \n", parsedResponse->humidity);

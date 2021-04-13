@@ -14,12 +14,7 @@ typedef struct {
 /**
  * @brief  Requests data from the weather api.
  */
-void api_request(void * pvParameter);
-
-/**
- * @brief  Gets the http response.
- */
-char* http_request_get_response(void);
+void api_request_task(void * pvParameter);
 
 weatherAPI_t* get_parsed_response(void);
 
