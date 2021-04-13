@@ -6,15 +6,16 @@ typedef struct {
     char* time;
 } clock_sync_t;
 
-//Init for the sntp
-void initialize_sntp(void);
-
-//Sets the time to the current time
-void obtain_time(void);
-
-//Clock task
+/**
+ * @brief  Clock Task which gets the time and date.
+ * @param  pvParameter: Parameter used for the xCreateTask method.
+ */
 void clock_task(void*pvParameter);
 
+/**
+ * @brief  Getter for the clock variable.
+ * @retval parsedClock
+ */
 clock_sync_t* get_clock();
 
-#endif
+#endif // clock-sync

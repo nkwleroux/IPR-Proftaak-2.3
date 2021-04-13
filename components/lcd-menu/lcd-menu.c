@@ -15,6 +15,9 @@
 
 #define MENUTAG "Menu"
 
+// Menu screen refresh
+void menu_refresh_screen(void);
+
 // Menu actions
 void menu_next_item(void);
 void menu_previous_item(void);
@@ -28,36 +31,41 @@ void menu_display_settings(void);
 
 void menu_display_weather(void);
 
-// Menu screen refresh
-void menu_refresh_screen(void);
 
 static i2c_lcd1602_info_t *_lcd_info;
 static menu_t *_menu;
 
+TaskHandle_t xHandleAPI = NULL;
 char *dataDateTime[MENU_DATE_TIME_SIZE + 1];
 char** citySelectionList;
 int selectedCityIndex = 0;
 int scrollIndex = 1;
-TaskHandle_t xHandleAPI = NULL;
 
-void menu_task(void * pvParameter){
+void menu_task(void * pvParameter)
+{
+    // Creates a task to get the weather API data.
+    xTaskCreate(&http_api_request_task, "api_request", 4096, NULL, 1, &xHandleAPI);
 
-    xTaskCreate(&api_request_task, "api_request", 4096, NULL, 5, &xHandleAPI);
-
+    // Initializes the touch buttons.
     init_touch_buttons();
 
+    // Creates a menu variable.
     _menu = menu_create_menu();
 
+    // Displays a default welcome message, then displays the menu.
     menu_display_welcome_message(_menu);
     menu_display_scroll_menu(_menu);
 
     while(1)
     {
+        // Refreshes the screen if variables are updated in other tasks.
         menu_refresh_screen();
         vTaskDelay(2500 / portTICK_RATE_MS);
     }
 
+    // Frees menu and deletes the tasks.
     menu_free_menu(_menu);
+    vTaskDelete(xHandleAPI);
     vTaskDelete(NULL);
 }
 
@@ -67,11 +75,14 @@ void menu_task(void * pvParameter){
  */
 void menu_new_API_task(int selectedCity){
 
-    select_city(selectedCity);
+    // Sets the new selected city.
+    http_select_city(selectedCity);
     
+    // Stops and deletes the old task.
     vTaskDelete(xHandleAPI);
     
-    xTaskCreate(&api_request_task, "api_request", 4096, NULL, 5, &xHandleAPI);
+    // Starts a new task with the new selected city.
+    xTaskCreate(&http_api_request_task, "api_request", 4096, NULL, 1, &xHandleAPI);
 }
 
 /**
@@ -111,19 +122,19 @@ i2c_lcd1602_info_t * lcd_init()
     i2c_lcd1602_info_t * lcd_info = i2c_lcd1602_malloc();
     i2c_lcd1602_init(lcd_info, smbus_info, true, LCD_NUM_ROWS, LCD_NUM_COLUMNS, LCD_NUM_VIS_COLUMNS);
 
-    // turn off backlight
+    // Turn off backlight
     ESP_LOGI(MENUTAG, "backlight off");
     i2c_lcd1602_set_backlight(lcd_info, false);
 
-    // turn on backlight
+    // Turn on backlight
     ESP_LOGI(MENUTAG, "backlight on");
     i2c_lcd1602_set_backlight(lcd_info, true);
 
-    // turn on cursor 
+    // Turn on cursor 
     ESP_LOGI(MENUTAG, "cursor on");
     i2c_lcd1602_set_cursor(lcd_info, true);
     
-    // turn on cursor TODO MAYBE REMOVE
+    // Turn off cursor
     ESP_LOGI(MENUTAG, "cursor on");
     i2c_lcd1602_set_cursor(lcd_info, false);
 
@@ -174,6 +185,7 @@ menu_t *menu_create_menu()
 
 void menu_free_menu(menu_t *menu)
 {
+    // Clears all menu variables and frees them from memory.
     free(menu->lcd_info);
     menu->lcd_info = NULL;
     free(menu->menuItems);
@@ -261,45 +273,6 @@ void menu_display_scroll_menu(menu_t *menu)
     const char *cursor = "<";
     i2c_lcd1602_move_cursor(menu->lcd_info, 17, 2);
     i2c_lcd1602_write_string(menu->lcd_info, cursor);
-}
-
-/**
- * @brief  Displays DATE & TIME menu with the clock data.
- */
-void menu_display_date_time()
-{
-    // Clears screen
-    i2c_lcd1602_clear(_lcd_info);
-
-    // Display scroll menu title
-    char *menuText = "DATE & TIME";
-    menu_write_scroll_menu_item(_lcd_info, menuText, 0);
-
-    if(scrollIndex + 1 > MENU_DATE_TIME_SIZE + 1){
-        scrollIndex = 0;
-    } else if (scrollIndex - 1 < -1) {
-        scrollIndex = MENU_DATE_TIME_SIZE;
-    }
-
-    // If below 0 loop back to top
-    int indexPreviousDateTime = scrollIndex - 1 < 0 ? MENU_DATE_TIME_SIZE : scrollIndex - 1;
-    menuText = dataDateTime[indexPreviousDateTime];
-    ESP_LOGI(MENUTAG,"Display text previous %s", menuText);
-    menu_write_scroll_menu_item(_lcd_info, menuText, 1);
-
-    menuText = dataDateTime[scrollIndex];
-    ESP_LOGI(MENUTAG,"Display text current %s", menuText);
-    menu_write_scroll_menu_item(_lcd_info, menuText, 2);
-
-    int indexNextDateTime = scrollIndex + 1 > MENU_DATE_TIME_SIZE ? 0 : scrollIndex + 1;
-    menuText = dataDateTime[indexNextDateTime];
-    ESP_LOGI(MENUTAG,"Display text next %s", menuText);
-    menu_write_scroll_menu_item(_lcd_info, menuText, 3);  
-    
-    // Display cursor
-    const char *cursor = "<";
-    i2c_lcd1602_move_cursor(_lcd_info, 17, 2);
-    i2c_lcd1602_write_string(_lcd_info, cursor);
 }
 
 /**
@@ -444,50 +417,41 @@ void menu_go_to_item(int menuItem)
 }
 
 /**
- * @brief  Displays the WEATHER menu with the data from the API.
+ * @brief  Displays DATE & TIME menu with the clock data.
  */
-void menu_display_weather(void)
+void menu_display_date_time()
 {
-    // Gets API data from http-request.
-    weatherAPI_t* parsedResponse = get_parsed_response();
-
     // Clears screen
     i2c_lcd1602_clear(_lcd_info);
 
-    // Allocates memory for menuText.
-    char *menuText = malloc(LCD_NUM_VIS_COLUMNS);
+    // Display scroll menu title
+    char *menuText = "DATE & TIME";
+    menu_write_scroll_menu_item(_lcd_info, menuText, 0);
 
-    // Check if response is not NULL. If NULL sets default values.
-    if(parsedResponse == NULL){
-        menu_write_scroll_menu_item(_lcd_info, "WEATHER", 0);
-        menu_write_scroll_menu_item(_lcd_info, "No internet", 1);
-    }else{
-
-        // Write API data to the screen.
-        sprintf(menuText,"T %.1lfC", parsedResponse->temp);
-        menu_write_item(_lcd_info, menuText, 2, 0);
-
-        sprintf(menuText,"FT %.1lfC", parsedResponse->feels_like);
-        menu_write_item(_lcd_info, menuText, 10, 0);
-
-        sprintf(menuText,"HUM %d%%", parsedResponse->humidity);
-        menu_write_item(_lcd_info, menuText, 2, 1);
-
-        sprintf(menuText,"Code: %s", parsedResponse->country_code);
-        menu_write_item(_lcd_info, menuText, 10, 1);
-
-        sprintf(menuText,"City: %s", parsedResponse->city);
-        menu_write_item(_lcd_info, menuText, 2, 2);
-
+    if(scrollIndex + 1 > MENU_DATE_TIME_SIZE + 1){
+        scrollIndex = 0;
+    } else if (scrollIndex - 1 < -1) {
+        scrollIndex = MENU_DATE_TIME_SIZE;
     }
-   
-    // Add back option
-    menuText = "Back";
-    menu_write_scroll_menu_item(_lcd_info, menuText, 3);
 
+    // If below 0 loop back to top
+    int indexPreviousDateTime = scrollIndex - 1 < 0 ? MENU_DATE_TIME_SIZE : scrollIndex - 1;
+    menuText = dataDateTime[indexPreviousDateTime];
+    ESP_LOGI(MENUTAG,"Display text previous %s", menuText);
+    menu_write_scroll_menu_item(_lcd_info, menuText, 1);
+
+    menuText = dataDateTime[scrollIndex];
+    ESP_LOGI(MENUTAG,"Display text current %s", menuText);
+    menu_write_scroll_menu_item(_lcd_info, menuText, 2);
+
+    int indexNextDateTime = scrollIndex + 1 > MENU_DATE_TIME_SIZE ? 0 : scrollIndex + 1;
+    menuText = dataDateTime[indexNextDateTime];
+    ESP_LOGI(MENUTAG,"Display text next %s", menuText);
+    menu_write_scroll_menu_item(_lcd_info, menuText, 3);  
+    
     // Display cursor
     const char *cursor = "<";
-    i2c_lcd1602_move_cursor(_lcd_info, 14, 3);
+    i2c_lcd1602_move_cursor(_lcd_info, 17, 2);
     i2c_lcd1602_write_string(_lcd_info, cursor);
 }
 
@@ -514,8 +478,8 @@ void menu_display_settings(void)
     menu_write_scroll_menu_item(_lcd_info, menuText, 0);
 
     // Get the city selection list
-    citySelectionList = city_selection_list();
-    int size = city_selection_list_size();
+    citySelectionList = http_get_city_selection_list();
+    int size = http_get_city_selection_list_size();
     citySelectionList[size] = "Back";
 
     // Set scrollindex if index is outside of list.
@@ -543,5 +507,53 @@ void menu_display_settings(void)
     // Display cursor
     const char *cursor = "<";
     i2c_lcd1602_move_cursor(_lcd_info, 17, 2);
+    i2c_lcd1602_write_string(_lcd_info, cursor);
+}
+
+/**
+ * @brief  Displays the WEATHER menu with the data from the API.
+ */
+void menu_display_weather(void)
+{
+    // Gets API data from http-request.
+    weatherAPI_t* parsedResponse = http_get_parsed_api_response();
+
+    // Clears screen
+    i2c_lcd1602_clear(_lcd_info);
+
+    // Allocates memory for menuText.
+    char *menuText = malloc(LCD_NUM_VIS_COLUMNS);
+
+    // Check if response is not NULL. If NULL sets default values.
+    if(parsedResponse == NULL){
+        menu_write_scroll_menu_item(_lcd_info, "WEATHER", 0);
+        menu_write_scroll_menu_item(_lcd_info, "No internet", 1);
+    }else{
+
+        // Write API data to the screen.
+        sprintf(menuText,"T %.1lfC", parsedResponse->temp);
+        menu_write_item(_lcd_info, menuText, 2, 0);
+
+        sprintf(menuText,"FT %.1lfC", parsedResponse->feels_like);
+        menu_write_item(_lcd_info, menuText, 10, 0);
+
+        sprintf(menuText,"HUM %d%%", parsedResponse->humidity);
+        menu_write_item(_lcd_info, menuText, 2, 1);
+
+        sprintf(menuText,"Code %s", parsedResponse->country_code);
+        menu_write_item(_lcd_info, menuText, 10, 1);
+
+        sprintf(menuText,"City: %s", parsedResponse->city);
+        menu_write_item(_lcd_info, menuText, 2, 2);
+
+    }
+   
+    // Add back option
+    menuText = "Back";
+    menu_write_scroll_menu_item(_lcd_info, menuText, 3);
+
+    // Display cursor
+    const char *cursor = "<";
+    i2c_lcd1602_move_cursor(_lcd_info, 14, 3);
     i2c_lcd1602_write_string(_lcd_info, cursor);
 }
